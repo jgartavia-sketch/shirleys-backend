@@ -10,8 +10,12 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
 
 def send_customer_welcome_email(customer_name: str, customer_email: str, customer_code: str) -> bool:
+
+    print("EMAIL_ADDRESS:", EMAIL_ADDRESS)
+    print("EMAIL_PASSWORD EXISTS:", bool(EMAIL_PASSWORD))
+
     if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
-        print("Faltan EMAIL_ADDRESS o EMAIL_PASSWORD en el archivo .env")
+        print("Faltan EMAIL_ADDRESS o EMAIL_PASSWORD en Render.")
         return False
 
     message = EmailMessage()
@@ -29,12 +33,9 @@ Tu registro fue exitoso.
 
 Tu código de cliente es: {customer_code}
 
-Muy pronto podrás utilizar tu código QR para acumular puntos, recibir beneficios y disfrutar recompensas especiales en Shirley’s.
+Muy pronto podrás utilizar tu código QR para acumular puntos y beneficios especiales.
 
-Gracias por formar parte de nuestra familia.
-
-Shirley’s
-Restaurante & Catering Service
+Gracias por formar parte de Shirley’s.
 """
     )
 
@@ -43,8 +44,9 @@ Restaurante & Catering Service
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             smtp.send_message(message)
 
+        print("Correo enviado correctamente.")
         return True
 
     except Exception as error:
-        print("Error enviando correo:", error)
+        print("ERROR SMTP:", error)
         return False
