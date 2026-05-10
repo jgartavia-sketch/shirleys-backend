@@ -10,16 +10,11 @@ load_dotenv()
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://shirleys-front.vercel.app")
 
-def generate_customer_qr(customer_name: str, customer_email: str, customer_code: str) -> bytes:
-    qr_content = f"""
-Shirley’s Customers
 
-Nombre: {customer_name}
-Correo: {customer_email}
-Código: {customer_code}
-Puntos: 0
-""".strip()
+def generate_customer_qr(customer_code: str) -> bytes:
+    customer_card_url = f"{FRONTEND_URL}/customers/{customer_code}"
 
     qr = qrcode.QRCode(
         version=1,
@@ -28,7 +23,7 @@ Puntos: 0
         border=4,
     )
 
-    qr.add_data(qr_content)
+    qr.add_data(customer_card_url)
     qr.make(fit=True)
 
     img = qr.make_image(fill_color="black", back_color="white")
@@ -49,7 +44,8 @@ def send_customer_welcome_email(customer_name: str, customer_email: str, custome
         print("Faltan EMAIL_ADDRESS o EMAIL_PASSWORD en Render.")
         return False
 
-    qr_image = generate_customer_qr(customer_name, customer_email, customer_code)
+    customer_card_url = f"{FRONTEND_URL}/customers/{customer_code}"
+    qr_image = generate_customer_qr(customer_code)
 
     message = EmailMessage()
     message["Subject"] = "Tu QR de Shirley’s Customers"
@@ -66,15 +62,11 @@ Tu registro fue exitoso.
 
 Adjunto encontrarás tu código QR personal.
 
-Cuando lo escanees, debería mostrar:
+Al escanearlo, se abrirá tu tarjeta digital de cliente:
 
-Shirley’s Customers
-Nombre: {customer_name}
-Correo: {customer_email}
-Código: {customer_code}
-Puntos: 0
+{customer_card_url}
 
-Guarda este QR. Más adelante podrás usarlo para acumular puntos y beneficios especiales.
+Ahí podrás ver tu perfil, código de cliente y puntos acumulados.
 
 Gracias por formar parte de Shirley’s.
 """
