@@ -12,18 +12,21 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "http://localhost:4200",
-    "http://localhost:5173",
-    "https://shirleys-front.vercel.app",
-    "https://shirleys-frontend.vercel.app",
-],
+        "http://localhost:4200",
+        "http://localhost:5173",
+        "https://shirleys-front.vercel.app",
+        "https://shirleys-frontend.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(customers_router, prefix="/api/customers", tags=["Customers"])
+app.include_router(
+    customers_router,
+    prefix="/api/customers",
+    tags=["Customers"],
+)
 
 
 @app.get("/")
