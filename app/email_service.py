@@ -1,12 +1,43 @@
 import os
 import smtplib
+from io import BytesIO
 from email.message import EmailMessage
 from dotenv import load_dotenv
+import qrcode
 
 load_dotenv()
 
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+
+
+def generate_customer_qr(customer_name: str, customer_email: str, customer_code: str) -> bytes:
+    qr_content = f"""
+Shirley’s Customers
+
+Nombre: {customer_name}
+Correo: {customer_email}
+Código: {customer_code}
+Puntos: 0
+""".strip()
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+
+    qr.add_data(qr_content)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return buffer.read()
 
 
 def send_customer_welcome_email(customer_name: str, customer_email: str, customer_code: str) -> bool:
@@ -18,8 +49,10 @@ def send_customer_welcome_email(customer_name: str, customer_email: str, custome
         print("Faltan EMAIL_ADDRESS o EMAIL_PASSWORD en Render.")
         return False
 
+    qr_image = generate_customer_qr(customer_name, customer_email, customer_code)
+
     message = EmailMessage()
-    message["Subject"] = "Bienvenido a Shirley’s Customers"
+    message["Subject"] = "Tu QR de Shirley’s Customers"
     message["From"] = EMAIL_ADDRESS
     message["To"] = customer_email
 
@@ -31,12 +64,27 @@ Hola {customer_name},
 
 Tu registro fue exitoso.
 
-Tu código de cliente es: {customer_code}
+Adjunto encontrarás tu código QR personal.
 
-Muy pronto podrás utilizar tu código QR para acumular puntos y beneficios especiales.
+Cuando lo escanees, debería mostrar:
+
+Shirley’s Customers
+Nombre: {customer_name}
+Correo: {customer_email}
+Código: {customer_code}
+Puntos: 0
+
+Guarda este QR. Más adelante podrás usarlo para acumular puntos y beneficios especiales.
 
 Gracias por formar parte de Shirley’s.
 """
+    )
+
+    message.add_attachment(
+        qr_image,
+        maintype="image",
+        subtype="png",
+        filename=f"shirleys-customer-{customer_code}.png",
     )
 
     try:
@@ -44,7 +92,7 @@ Gracias por formar parte de Shirley’s.
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             smtp.send_message(message)
 
-        print("Correo enviado correctamente.")
+        print("Correo con QR enviado correctamente.")
         return True
 
     except Exception as error:
