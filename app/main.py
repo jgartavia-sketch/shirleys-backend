@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.customers import router as customers_router
+from app.staff_auth import router as staff_router
 
 app = FastAPI(
     title="Shirley's Backend",
@@ -26,10 +27,18 @@ app.add_middleware(
 # STATIC FILES
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# CUSTOMERS ROUTES
 app.include_router(
     customers_router,
     prefix="/api/customers",
     tags=["Customers"],
+)
+
+# STAFF AUTH ROUTES
+app.include_router(
+    staff_router,
+    prefix="/api/staff",
+    tags=["Staff"],
 )
 
 
