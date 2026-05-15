@@ -4,10 +4,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.customers import router as customers_router
 from app.staff_auth import router as staff_router
+from app.catering import router as catering_router
 
 app = FastAPI(
     title="Shirley's Backend",
-    description="Backend inicial para Shirley's Customers",
+    description="Backend para Shirley's Customers y Catering Service",
     version="1.0.0",
 )
 
@@ -18,6 +19,8 @@ app.add_middleware(
         "http://localhost:5173",
         "https://shirleys-front.vercel.app",
         "https://shirleys-frontend.vercel.app",
+        "https://shirleyscr.com",
+        "https://www.shirleyscr.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -41,6 +44,13 @@ app.include_router(
     tags=["Staff"],
 )
 
+# CATERING ROUTES
+app.include_router(
+    catering_router,
+    prefix="/api/catering",
+    tags=["Catering"],
+)
+
 
 @app.get("/")
 def home():
@@ -54,5 +64,5 @@ def home():
 def health_check():
     return {
         "status": "healthy",
-        "service": "shirleys-customers",
+        "service": "shirleys-backend",
     }
