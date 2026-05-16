@@ -1,12 +1,20 @@
 from fastapi import APIRouter
-from app.customers import get_db_connection
+import sqlite3
 
 router = APIRouter()
+
+DB_NAME = "shirleys_customers.db"
+
+
+def get_admin_db_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 @router.get("/summary")
 def get_admin_summary():
-    conn = get_db_connection()
+    conn = get_admin_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT COUNT(*) FROM customers")
@@ -21,9 +29,7 @@ def get_admin_summary():
     cursor.execute("SELECT COALESCE(SUM(points_earned), 0) FROM purchases")
     total_points_delivered = cursor.fetchone()[0] or 0
 
-    average_ticket = 0
-    if total_purchases > 0:
-        average_ticket = round(total_sales / total_purchases, 2)
+    average_ticket = round(total_sales / total_purchases, 2) if total_purchases > 0 else 0
 
     cursor.execute("""
         SELECT COUNT(*)
@@ -48,19 +54,8 @@ def get_admin_summary():
         ORDER BY total_spent DESC, purchases_count DESC
         LIMIT 10
     """)
-    top_customers = [
-        {
-            "code": row[0],
-            "name": row[1],
-            "email": row[2],
-            "whatsapp": row[3],
-            "points": row[4],
-            "purchases_count": row[5],
-            "total_spent": row[6],
-            "last_purchase": row[7],
-        }
-        for row in cursor.fetchall()
-    ]
+
+    top_customers = [dict(row) for row in cursor.fetchall()]
 
     cursor.execute("""
         SELECT
@@ -77,17 +72,18 @@ def get_admin_summary():
         ORDER BY p.created_at DESC
         LIMIT 15
     """)
+
     recent_purchases = [
         {
-            "invoice_number": row[0],
-            "amount": row[1],
-            "points_earned": row[2],
-            "created_at": row[3],
+            "invoice_number": row["invoice_number"],
+            "amount": row["amount"],
+            "points_earned": row["points_earned"],
+            "created_at": row["created_at"],
             "customer": {
-                "code": row[4],
-                "name": row[5],
-                "email": row[6],
-                "whatsapp": row[7],
+                "code": row["code"],
+                "name": row["name"],
+                "email": row["email"],
+                "whatsapp": row["whatsapp"],
             },
         }
         for row in cursor.fetchall()
