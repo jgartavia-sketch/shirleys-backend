@@ -5,10 +5,11 @@ from fastapi.staticfiles import StaticFiles
 from app.customers import router as customers_router
 from app.staff_auth import router as staff_router
 from app.catering import router as catering_router
+from app.admin import router as admin_router
 
 app = FastAPI(
     title="Shirley's Backend",
-    description="Backend para Shirley's Customers y Catering Service",
+    description="Backend para Shirley's Customers, Catering Service y Panel Admin",
     version="1.0.0",
 )
 
@@ -27,28 +28,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# STATIC FILES
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# CUSTOMERS ROUTES
 app.include_router(
     customers_router,
     prefix="/api/customers",
     tags=["Customers"],
 )
 
-# STAFF AUTH ROUTES
 app.include_router(
     staff_router,
     prefix="/api/staff",
     tags=["Staff"],
 )
 
-# CATERING ROUTES
 app.include_router(
     catering_router,
     prefix="/api/catering",
     tags=["Catering"],
+)
+
+app.include_router(
+    admin_router,
+    prefix="/api/admin",
+    tags=["Admin"],
 )
 
 
