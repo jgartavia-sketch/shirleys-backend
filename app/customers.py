@@ -174,4 +174,3 @@ def get_customer(customer_code: str):
             for purchase in purchases
         ],
     }
-}
