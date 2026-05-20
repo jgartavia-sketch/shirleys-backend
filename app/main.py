@@ -6,10 +6,11 @@ from app.customers import router as customers_router
 from app.staff_auth import router as staff_router
 from app.catering import router as catering_router
 from app.admin import router as admin_router
+from app.orders import router as orders_router
 
 app = FastAPI(
     title="Shirley's Backend",
-    description="Backend para Shirley's Customers, Catering Service y Panel Admin",
+    description="Backend para Shirley's Customers, Catering Service, Pedidos WhatsApp y Panel Admin",
     version="1.0.0",
 )
 
@@ -52,6 +53,12 @@ app.include_router(
     admin_router,
     prefix="/api/admin",
     tags=["Admin"],
+)
+
+app.include_router(
+    orders_router,
+    prefix="/api/orders",
+    tags=["WhatsApp Orders"],
 )
 
 

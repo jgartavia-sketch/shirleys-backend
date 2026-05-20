@@ -1,5 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional, Literal
+from datetime import datetime
 import sqlite3
+import json
 
 router = APIRouter()
 
@@ -10,6 +14,49 @@ def get_admin_db_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def ensure_whatsapp_orders_table():
+    conn = get_admin_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS whatsapp_orders (
+            id TEXT PRIMARY KEY,
+
+            customer_name TEXT,
+            customer_phone TEXT,
+
+            order_type TEXT NOT NULL,
+            location_text TEXT,
+
+            items_json TEXT NOT NULL,
+
+            food_total REAL NOT NULL,
+            packaging_total REAL NOT NULL,
+            total REAL NOT NULL,
+
+            status TEXT NOT NULL,
+
+            notes TEXT,
+
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            confirmed_at TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+ensure_whatsapp_orders_table()
+
+
+class UpdateWhatsappOrderRequest(BaseModel):
+    status: Literal["pending_confirmation", "confirmed", "cancelled", "modified"]
+    total: Optional[float] = None
+    notes: Optional[str] = None
 
 
 @router.get("/summary")
@@ -89,6 +136,43 @@ def get_admin_summary():
         for row in cursor.fetchall()
     ]
 
+    cursor.execute("SELECT COUNT(*) FROM whatsapp_orders")
+    whatsapp_orders_received = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM whatsapp_orders
+        WHERE status = 'confirmed'
+    """)
+    whatsapp_orders_confirmed = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM whatsapp_orders
+        WHERE status = 'cancelled'
+    """)
+    whatsapp_orders_cancelled = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(total), 0)
+        FROM whatsapp_orders
+        WHERE status = 'confirmed'
+    """)
+    whatsapp_total_confirmed = cursor.fetchone()[0] or 0
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(packaging_total), 0)
+        FROM whatsapp_orders
+        WHERE status = 'confirmed'
+    """)
+    whatsapp_packaging_confirmed = cursor.fetchone()[0] or 0
+
+    whatsapp_average_confirmed_ticket = (
+        round(whatsapp_total_confirmed / whatsapp_orders_confirmed, 2)
+        if whatsapp_orders_confirmed > 0
+        else 0
+    )
+
     conn.close()
 
     return {
@@ -100,4 +184,109 @@ def get_admin_summary():
         "new_customers_this_month": new_customers_this_month,
         "top_customers": top_customers,
         "recent_purchases": recent_purchases,
+
+        "whatsapp_orders_received": whatsapp_orders_received,
+        "whatsapp_orders_confirmed": whatsapp_orders_confirmed,
+        "whatsapp_orders_cancelled": whatsapp_orders_cancelled,
+        "whatsapp_total_confirmed": whatsapp_total_confirmed,
+        "whatsapp_packaging_confirmed": whatsapp_packaging_confirmed,
+        "whatsapp_average_confirmed_ticket": whatsapp_average_confirmed_ticket,
+    }
+
+
+@router.get("/whatsapp-orders")
+def list_whatsapp_orders():
+    conn = get_admin_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            customer_name,
+            customer_phone,
+            order_type,
+            location_text,
+            items_json,
+            food_total,
+            packaging_total,
+            total,
+            status,
+            notes,
+            created_at,
+            updated_at,
+            confirmed_at
+        FROM whatsapp_orders
+        ORDER BY created_at DESC
+        LIMIT 100
+    """)
+
+    orders = []
+
+    for row in cursor.fetchall():
+        order = dict(row)
+
+        try:
+            order["items"] = json.loads(order["items_json"])
+        except json.JSONDecodeError:
+            order["items"] = []
+
+        del order["items_json"]
+        orders.append(order)
+
+    conn.close()
+
+    return {
+        "orders": orders
+    }
+
+
+@router.patch("/whatsapp-orders/{order_id}")
+def update_whatsapp_order(order_id: str, data: UpdateWhatsappOrderRequest):
+    conn = get_admin_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM whatsapp_orders
+        WHERE id = ?
+    """, (order_id,))
+
+    existing_order = cursor.fetchone()
+
+    if not existing_order:
+        conn.close()
+        raise HTTPException(status_code=404, detail="WhatsApp order not found")
+
+    now = datetime.utcnow().isoformat()
+    confirmed_at = now if data.status == "confirmed" else None
+
+    final_total = data.total if data.total is not None else existing_order["total"]
+    final_notes = data.notes if data.notes is not None else existing_order["notes"]
+
+    cursor.execute("""
+        UPDATE whatsapp_orders
+        SET
+            status = ?,
+            total = ?,
+            notes = ?,
+            updated_at = ?,
+            confirmed_at = ?
+        WHERE id = ?
+    """, (
+        data.status,
+        final_total,
+        final_notes,
+        now,
+        confirmed_at,
+        order_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "message": "WhatsApp order updated successfully",
+        "order_id": order_id,
+        "status": data.status,
     }
