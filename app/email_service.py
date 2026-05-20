@@ -2,6 +2,7 @@ import os
 import smtplib
 from io import BytesIO
 from email.message import EmailMessage
+from urllib.parse import quote
 
 import qrcode
 from dotenv import load_dotenv
@@ -11,6 +12,7 @@ load_dotenv()
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:4200")
+SHIRLEYS_WHATSAPP_NUMBER = os.getenv("SHIRLEYS_WHATSAPP_NUMBER", "50688335888")
 
 
 def generate_customer_qr(customer_code: str) -> bytes:
@@ -33,6 +35,78 @@ def generate_customer_qr(customer_code: str) -> bytes:
     buffer.seek(0)
 
     return buffer.read()
+
+
+def normalize_whatsapp_number(phone: str | None) -> str:
+    if not phone:
+        return ""
+
+    cleaned = (
+        phone.replace(" ", "")
+        .replace("-", "")
+        .replace("(", "")
+        .replace(")", "")
+        .replace("+", "")
+    )
+
+    if cleaned.startswith("506"):
+        return cleaned
+
+    return f"506{cleaned}"
+
+
+def build_customer_welcome_whatsapp_url(
+    customer_name: str,
+    customer_whatsapp: str,
+    customer_code: str,
+) -> str:
+    normalized_phone = normalize_whatsapp_number(customer_whatsapp)
+    customer_card_url = f"{FRONTEND_URL}/customers/{customer_code}"
+
+    message = f"""Hola {customer_name}, bienvenido a Shirley’s Customers.
+
+Tu registro fue exitoso.
+
+Código de cliente:
+{customer_code}
+
+Tu tarjeta digital está aquí:
+{customer_card_url}
+
+Guarda este enlace y presenta tu QR en Shirley’s para acumular puntos.
+
+Gracias por formar parte de Shirley’s."""
+
+    return f"https://wa.me/{normalized_phone}?text={quote(message)}"
+
+
+def build_internal_new_customer_whatsapp_url(
+    customer_name: str,
+    customer_email: str,
+    customer_whatsapp: str,
+    customer_code: str,
+) -> str:
+    normalized_shirleys_phone = normalize_whatsapp_number(SHIRLEYS_WHATSAPP_NUMBER)
+    customer_card_url = f"{FRONTEND_URL}/customers/{customer_code}"
+
+    message = f"""Nuevo registro en Shirley’s Customers.
+
+Nombre:
+{customer_name}
+
+Correo:
+{customer_email}
+
+WhatsApp:
+{customer_whatsapp}
+
+Código de cliente:
+{customer_code}
+
+Tarjeta digital:
+{customer_card_url}"""
+
+    return f"https://wa.me/{normalized_shirleys_phone}?text={quote(message)}"
 
 
 def send_customer_welcome_email(
