@@ -23,23 +23,16 @@ def ensure_whatsapp_orders_table():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS whatsapp_orders (
             id TEXT PRIMARY KEY,
-
             customer_name TEXT,
             customer_phone TEXT,
-
             order_type TEXT NOT NULL,
             location_text TEXT,
-
             items_json TEXT NOT NULL,
-
             food_total REAL NOT NULL,
             packaging_total REAL NOT NULL,
             total REAL NOT NULL,
-
             status TEXT NOT NULL,
-
             notes TEXT,
-
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             confirmed_at TEXT
@@ -57,6 +50,23 @@ class UpdateWhatsappOrderRequest(BaseModel):
     status: Literal["pending_confirmation", "confirmed", "cancelled", "modified"]
     total: Optional[float] = None
     notes: Optional[str] = None
+
+
+@router.delete("/customers")
+def delete_all_customers():
+    conn = get_admin_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM purchases")
+    cursor.execute("DELETE FROM customers")
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "message": "Todos los clientes y compras fueron eliminados correctamente.",
+    }
 
 
 @router.get("/summary")
@@ -184,7 +194,6 @@ def get_admin_summary():
         "new_customers_this_month": new_customers_this_month,
         "top_customers": top_customers,
         "recent_purchases": recent_purchases,
-
         "whatsapp_orders_received": whatsapp_orders_received,
         "whatsapp_orders_confirmed": whatsapp_orders_confirmed,
         "whatsapp_orders_cancelled": whatsapp_orders_cancelled,
