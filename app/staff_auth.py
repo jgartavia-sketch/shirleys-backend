@@ -17,6 +17,7 @@ QR_FOLDER = "static/customer_qr"
 
 STAFF_PASSWORD = os.getenv("STAFF_PASSWORD")
 STAFF_JWT_SECRET = os.getenv("STAFF_JWT_SECRET", "shirleys-staff-secret-dev")
+ADMIN_CUSTOMERS_TOKEN = os.getenv("ADMIN_CUSTOMERS_TOKEN")
 
 
 class StaffLoginRequest(BaseModel):
@@ -53,13 +54,17 @@ def staff_login(data: StaffLoginRequest):
             detail="Contraseña staff incorrecta.",
         )
 
-    token = create_staff_token()
+    if not ADMIN_CUSTOMERS_TOKEN:
+        raise HTTPException(
+            status_code=500,
+            detail="ADMIN_CUSTOMERS_TOKEN no está configurado en el servidor.",
+        )
 
     return {
         "success": True,
         "message": "Acceso staff autorizado.",
-        "token": token,
-        "token_type": "bearer",
+        "token": ADMIN_CUSTOMERS_TOKEN,
+        "token_type": "admin-customers-token",
         "expires_in_hours": 8,
     }
 
