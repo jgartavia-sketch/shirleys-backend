@@ -160,7 +160,7 @@ def create_purchase_for_customer(customer_code: str, invoice_number: str, amount
         conn.close()
         raise HTTPException(
             status_code=404,
-            detail="Cliente no encontrado.",
+            detail="No encontramos un cliente asociado a ese código QR.",
         )
 
     cursor.execute(
@@ -403,7 +403,7 @@ def get_customer(customer_code: str):
         conn.close()
         raise HTTPException(
             status_code=404,
-            detail="Cliente no encontrado.",
+            detail="No encontramos un cliente asociado a ese código QR.",
         )
 
     cursor.execute(
