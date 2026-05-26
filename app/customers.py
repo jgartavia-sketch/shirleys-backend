@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
+from typing import Optional
 import os
 import psycopg2
 import psycopg2.extras
@@ -22,6 +23,17 @@ class CustomerRegisterRequest(BaseModel):
     name: str
     email: EmailStr
     whatsapp: str
+
+
+class PurchaseRegisterRequest(BaseModel):
+    invoice_number: str
+    amount: float
+
+
+class PurchaseRegisterByBodyRequest(BaseModel):
+    customer_code: str
+    invoice_number: str
+    amount: float
 
 
 def get_db_connection():
@@ -78,6 +90,16 @@ def generate_customer_code():
     return f"SHR-{timestamp}"
 
 
+def calculate_points(amount: float):
+    if amount >= 15000:
+        return 9
+    if amount >= 10000:
+        return 7
+    if amount >= 5000:
+        return 3
+    return 0
+
+
 def verify_admin_token(x_admin_token: str | None):
     if not ADMIN_CUSTOMERS_TOKEN:
         raise HTTPException(
@@ -90,6 +112,105 @@ def verify_admin_token(x_admin_token: str | None):
             status_code=401,
             detail="Token admin inválido.",
         )
+
+
+def create_purchase_for_customer(customer_code: str, invoice_number: str, amount: float):
+    ensure_customers_tables()
+
+    clean_customer_code = customer_code.strip()
+    clean_invoice_number = invoice_number.strip()
+
+    if not clean_customer_code:
+        raise HTTPException(
+            status_code=400,
+            detail="El código del cliente es obligatorio.",
+        )
+
+    if not clean_invoice_number:
+        raise HTTPException(
+            status_code=400,
+            detail="El número de factura es obligatorio.",
+        )
+
+    if amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="El monto de compra debe ser mayor a cero.",
+        )
+
+    points_earned = calculate_points(amount)
+    created_at = datetime.now().isoformat()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM customers
+        WHERE code = %s
+        """,
+        (clean_customer_code,),
+    )
+
+    customer = cursor.fetchone()
+
+    if not customer:
+        cursor.close()
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail="Cliente no encontrado.",
+        )
+
+    cursor.execute(
+        """
+        INSERT INTO purchases (
+            customer_code,
+            invoice_number,
+            amount,
+            points_earned,
+            created_at
+        )
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (
+            clean_customer_code,
+            clean_invoice_number,
+            amount,
+            points_earned,
+            created_at,
+        ),
+    )
+
+    cursor.execute(
+        """
+        UPDATE customers
+        SET points = points + %s
+        WHERE code = %s
+        RETURNING points
+        """,
+        (
+            points_earned,
+            clean_customer_code,
+        ),
+    )
+
+    updated_customer = cursor.fetchone()
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {
+        "success": True,
+        "message": "Compra registrada correctamente.",
+        "customer_code": clean_customer_code,
+        "invoice_number": clean_invoice_number,
+        "amount": amount,
+        "points_earned": points_earned,
+        "total_points": updated_customer["points"],
+    }
 
 
 @router.get("/admin/list")
@@ -228,6 +349,35 @@ def register_customer(payload: CustomerRegisterRequest):
         "customer_whatsapp_url": customer_whatsapp_url,
         "shirleys_whatsapp_url": shirleys_whatsapp_url,
     }
+
+
+@router.post("/purchase")
+def register_purchase_by_body(
+    payload: PurchaseRegisterByBodyRequest,
+    x_admin_token: str | None = Header(default=None),
+):
+    verify_admin_token(x_admin_token)
+
+    return create_purchase_for_customer(
+        customer_code=payload.customer_code,
+        invoice_number=payload.invoice_number,
+        amount=payload.amount,
+    )
+
+
+@router.post("/{customer_code}/purchases")
+def register_purchase(
+    customer_code: str,
+    payload: PurchaseRegisterRequest,
+    x_admin_token: str | None = Header(default=None),
+):
+    verify_admin_token(x_admin_token)
+
+    return create_purchase_for_customer(
+        customer_code=customer_code,
+        invoice_number=payload.invoice_number,
+        amount=payload.amount,
+    )
 
 
 @router.get("/{customer_code}")
