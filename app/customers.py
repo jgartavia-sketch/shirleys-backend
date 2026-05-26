@@ -14,7 +14,7 @@ from app.email_service import (
 
 router = APIRouter()
 
-DATABASE_URL = os.getenv("postgresql://shirleys_postgres_user:9LEJbFGaLjUV0qZ0o1TU3bty9CTGr8Ov@dpg-d8aqmjbtqb8s73aekha0-a/shirleys_postgres")
+DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_CUSTOMERS_TOKEN = os.getenv("ADMIN_CUSTOMERS_TOKEN", "")
 
 
@@ -73,9 +73,6 @@ def ensure_customers_tables():
     conn.close()
 
 
-ensure_customers_tables()
-
-
 def generate_customer_code():
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     return f"SHR-{timestamp}"
@@ -98,6 +95,7 @@ def verify_admin_token(x_admin_token: str | None):
 @router.get("/admin/list")
 def list_customers(x_admin_token: str | None = Header(default=None)):
     verify_admin_token(x_admin_token)
+    ensure_customers_tables()
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -142,6 +140,8 @@ def list_customers(x_admin_token: str | None = Header(default=None)):
 
 @router.post("/register")
 def register_customer(payload: CustomerRegisterRequest):
+    ensure_customers_tables()
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -232,6 +232,8 @@ def register_customer(payload: CustomerRegisterRequest):
 
 @router.get("/{customer_code}")
 def get_customer(customer_code: str):
+    ensure_customers_tables()
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
