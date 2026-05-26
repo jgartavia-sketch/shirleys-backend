@@ -56,9 +56,6 @@ def initialize_orders_table():
     conn.close()
 
 
-initialize_orders_table()
-
-
 class OrderItem(BaseModel):
     name: str
     quantity: int
@@ -78,6 +75,8 @@ class CreateOrderRequest(BaseModel):
 
 @router.post("/")
 def create_order(data: CreateOrderRequest):
+    initialize_orders_table()
+
     conn = get_connection()
     cursor = conn.cursor()
 

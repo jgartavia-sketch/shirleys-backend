@@ -9,7 +9,7 @@ import psycopg2.extras
 
 router = APIRouter()
 
-DATABASE_URL = os.getenv("postgresql://shirleys_postgres_user:9LEJbFGaLjUV0qZ0o1TU3bty9CTGr8Ov@dpg-d8aqmjbtqb8s73aekha0-a/shirleys_postgres")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def get_admin_db_connection():
@@ -25,9 +25,36 @@ def get_admin_db_connection():
     )
 
 
-def ensure_whatsapp_orders_table():
+def ensure_admin_tables():
     conn = get_admin_db_connection()
     cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS customers (
+            id SERIAL PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            whatsapp TEXT NOT NULL,
+            points INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS purchases (
+            id SERIAL PRIMARY KEY,
+            customer_code TEXT NOT NULL,
+            invoice_number TEXT NOT NULL,
+            amount NUMERIC NOT NULL,
+            points_earned INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
 
     cursor.execute(
         """
@@ -55,9 +82,6 @@ def ensure_whatsapp_orders_table():
     conn.close()
 
 
-ensure_whatsapp_orders_table()
-
-
 class UpdateWhatsappOrderRequest(BaseModel):
     status: Literal["pending_confirmation", "confirmed", "cancelled", "modified"]
     total: Optional[float] = None
@@ -66,6 +90,8 @@ class UpdateWhatsappOrderRequest(BaseModel):
 
 @router.delete("/customers")
 def delete_all_customers():
+    ensure_admin_tables()
+
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
@@ -84,6 +110,8 @@ def delete_all_customers():
 
 @router.get("/summary")
 def get_admin_summary():
+    ensure_admin_tables()
+
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
@@ -233,6 +261,8 @@ def get_admin_summary():
 
 @router.get("/whatsapp-orders")
 def list_whatsapp_orders():
+    ensure_admin_tables()
+
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
@@ -286,6 +316,8 @@ def list_whatsapp_orders():
 
 @router.patch("/whatsapp-orders/{order_id}")
 def update_whatsapp_order(order_id: str, data: UpdateWhatsappOrderRequest):
+    ensure_admin_tables()
+
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
