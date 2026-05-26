@@ -2,25 +2,35 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal
 from datetime import datetime
-import sqlite3
+import os
 import json
+import psycopg2
+import psycopg2.extras
 
 router = APIRouter()
 
-DB_NAME = "shirleys_customers.db"
+DATABASE_URL = os.getenv("postgresql://shirleys_postgres_user:9LEJbFGaLjUV0qZ0o1TU3bty9CTGr8Ov@dpg-d8aqmjbtqb8s73aekha0-a/shirleys_postgres")
 
 
 def get_admin_db_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if not DATABASE_URL:
+        raise HTTPException(
+            status_code=500,
+            detail="DATABASE_URL no está configurado en el servidor.",
+        )
+
+    return psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
 
 
 def ensure_whatsapp_orders_table():
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS whatsapp_orders (
             id TEXT PRIMARY KEY,
             customer_name TEXT,
@@ -28,18 +38,20 @@ def ensure_whatsapp_orders_table():
             order_type TEXT NOT NULL,
             location_text TEXT,
             items_json TEXT NOT NULL,
-            food_total REAL NOT NULL,
-            packaging_total REAL NOT NULL,
-            total REAL NOT NULL,
+            food_total NUMERIC NOT NULL,
+            packaging_total NUMERIC NOT NULL,
+            total NUMERIC NOT NULL,
             status TEXT NOT NULL,
             notes TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             confirmed_at TEXT
         )
-    """)
+        """
+    )
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 
@@ -61,6 +73,7 @@ def delete_all_customers():
     cursor.execute("DELETE FROM customers")
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     return {
@@ -74,28 +87,31 @@ def get_admin_summary():
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM customers")
-    total_customers = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COUNT(*) AS total FROM customers")
+    total_customers = cursor.fetchone()["total"] or 0
 
-    cursor.execute("SELECT COUNT(*) FROM purchases")
-    total_purchases = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COUNT(*) AS total FROM purchases")
+    total_purchases = cursor.fetchone()["total"] or 0
 
-    cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM purchases")
-    total_sales = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COALESCE(SUM(amount), 0) AS total FROM purchases")
+    total_sales = float(cursor.fetchone()["total"] or 0)
 
-    cursor.execute("SELECT COALESCE(SUM(points_earned), 0) FROM purchases")
-    total_points_delivered = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COALESCE(SUM(points_earned), 0) AS total FROM purchases")
+    total_points_delivered = cursor.fetchone()["total"] or 0
 
     average_ticket = round(total_sales / total_purchases, 2) if total_purchases > 0 else 0
 
-    cursor.execute("""
-        SELECT COUNT(*)
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS total
         FROM customers
-        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')
-    """)
-    new_customers_this_month = cursor.fetchone()[0] or 0
+        WHERE TO_CHAR(created_at::timestamp, 'YYYY-MM') = TO_CHAR(NOW(), 'YYYY-MM')
+        """
+    )
+    new_customers_this_month = cursor.fetchone()["total"] or 0
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             c.code,
             c.name,
@@ -110,11 +126,13 @@ def get_admin_summary():
         GROUP BY c.code, c.name, c.email, c.whatsapp, c.points
         ORDER BY total_spent DESC, purchases_count DESC
         LIMIT 10
-    """)
+        """
+    )
 
     top_customers = [dict(row) for row in cursor.fetchall()]
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             p.invoice_number,
             p.amount,
@@ -128,12 +146,13 @@ def get_admin_summary():
         LEFT JOIN customers c ON c.code = p.customer_code
         ORDER BY p.created_at DESC
         LIMIT 15
-    """)
+        """
+    )
 
     recent_purchases = [
         {
             "invoice_number": row["invoice_number"],
-            "amount": row["amount"],
+            "amount": float(row["amount"]) if row["amount"] is not None else 0,
             "points_earned": row["points_earned"],
             "created_at": row["created_at"],
             "customer": {
@@ -146,36 +165,44 @@ def get_admin_summary():
         for row in cursor.fetchall()
     ]
 
-    cursor.execute("SELECT COUNT(*) FROM whatsapp_orders")
-    whatsapp_orders_received = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT COUNT(*) AS total FROM whatsapp_orders")
+    whatsapp_orders_received = cursor.fetchone()["total"] or 0
 
-    cursor.execute("""
-        SELECT COUNT(*)
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS total
         FROM whatsapp_orders
         WHERE status = 'confirmed'
-    """)
-    whatsapp_orders_confirmed = cursor.fetchone()[0] or 0
+        """
+    )
+    whatsapp_orders_confirmed = cursor.fetchone()["total"] or 0
 
-    cursor.execute("""
-        SELECT COUNT(*)
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS total
         FROM whatsapp_orders
         WHERE status = 'cancelled'
-    """)
-    whatsapp_orders_cancelled = cursor.fetchone()[0] or 0
+        """
+    )
+    whatsapp_orders_cancelled = cursor.fetchone()["total"] or 0
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(total), 0)
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(total), 0) AS total
         FROM whatsapp_orders
         WHERE status = 'confirmed'
-    """)
-    whatsapp_total_confirmed = cursor.fetchone()[0] or 0
+        """
+    )
+    whatsapp_total_confirmed = float(cursor.fetchone()["total"] or 0)
 
-    cursor.execute("""
-        SELECT COALESCE(SUM(packaging_total), 0)
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(packaging_total), 0) AS total
         FROM whatsapp_orders
         WHERE status = 'confirmed'
-    """)
-    whatsapp_packaging_confirmed = cursor.fetchone()[0] or 0
+        """
+    )
+    whatsapp_packaging_confirmed = float(cursor.fetchone()["total"] or 0)
 
     whatsapp_average_confirmed_ticket = (
         round(whatsapp_total_confirmed / whatsapp_orders_confirmed, 2)
@@ -183,6 +210,7 @@ def get_admin_summary():
         else 0
     )
 
+    cursor.close()
     conn.close()
 
     return {
@@ -208,7 +236,8 @@ def list_whatsapp_orders():
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT
             id,
             customer_name,
@@ -227,7 +256,8 @@ def list_whatsapp_orders():
         FROM whatsapp_orders
         ORDER BY created_at DESC
         LIMIT 100
-    """)
+        """
+    )
 
     orders = []
 
@@ -239,9 +269,14 @@ def list_whatsapp_orders():
         except json.JSONDecodeError:
             order["items"] = []
 
+        order["food_total"] = float(order["food_total"])
+        order["packaging_total"] = float(order["packaging_total"])
+        order["total"] = float(order["total"])
+
         del order["items_json"]
         orders.append(order)
 
+    cursor.close()
     conn.close()
 
     return {
@@ -254,15 +289,19 @@ def update_whatsapp_order(order_id: str, data: UpdateWhatsappOrderRequest):
     conn = get_admin_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT *
         FROM whatsapp_orders
-        WHERE id = ?
-    """, (order_id,))
+        WHERE id = %s
+        """,
+        (order_id,),
+    )
 
     existing_order = cursor.fetchone()
 
     if not existing_order:
+        cursor.close()
         conn.close()
         raise HTTPException(status_code=404, detail="WhatsApp order not found")
 
@@ -272,25 +311,29 @@ def update_whatsapp_order(order_id: str, data: UpdateWhatsappOrderRequest):
     final_total = data.total if data.total is not None else existing_order["total"]
     final_notes = data.notes if data.notes is not None else existing_order["notes"]
 
-    cursor.execute("""
+    cursor.execute(
+        """
         UPDATE whatsapp_orders
         SET
-            status = ?,
-            total = ?,
-            notes = ?,
-            updated_at = ?,
-            confirmed_at = ?
-        WHERE id = ?
-    """, (
-        data.status,
-        final_total,
-        final_notes,
-        now,
-        confirmed_at,
-        order_id,
-    ))
+            status = %s,
+            total = %s,
+            notes = %s,
+            updated_at = %s,
+            confirmed_at = %s
+        WHERE id = %s
+        """,
+        (
+            data.status,
+            final_total,
+            final_notes,
+            now,
+            confirmed_at,
+            order_id,
+        ),
+    )
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     return {

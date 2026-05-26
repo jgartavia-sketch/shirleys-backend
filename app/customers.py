@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, EmailStr
-import sqlite3
 from datetime import datetime
 import os
+import psycopg2
+import psycopg2.extras
 
 from app.email_service import (
     send_customer_welcome_email,
@@ -13,7 +14,7 @@ from app.email_service import (
 
 router = APIRouter()
 
-DB_NAME = "shirleys_customers.db"
+DATABASE_URL = os.getenv("postgresql://shirleys_postgres_user:9LEJbFGaLjUV0qZ0o1TU3bty9CTGr8Ov@dpg-d8aqmjbtqb8s73aekha0-a/shirleys_postgres")
 ADMIN_CUSTOMERS_TOKEN = os.getenv("ADMIN_CUSTOMERS_TOKEN", "")
 
 
@@ -24,9 +25,55 @@ class CustomerRegisterRequest(BaseModel):
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if not DATABASE_URL:
+        raise HTTPException(
+            status_code=500,
+            detail="DATABASE_URL no está configurado en el servidor.",
+        )
+
+    return psycopg2.connect(
+        DATABASE_URL,
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+
+
+def ensure_customers_tables():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS customers (
+            id SERIAL PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            whatsapp TEXT NOT NULL,
+            points INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS purchases (
+            id SERIAL PRIMARY KEY,
+            customer_code TEXT NOT NULL,
+            invoice_number TEXT NOT NULL,
+            amount NUMERIC NOT NULL,
+            points_earned INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+ensure_customers_tables()
 
 
 def generate_customer_code():
@@ -55,7 +102,7 @@ def list_customers(x_admin_token: str | None = Header(default=None)):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    customers = cursor.execute(
+    cursor.execute(
         """
         SELECT
             id,
@@ -68,8 +115,11 @@ def list_customers(x_admin_token: str | None = Header(default=None)):
         FROM customers
         ORDER BY created_at DESC
         """
-    ).fetchall()
+    )
 
+    customers = cursor.fetchall()
+
+    cursor.close()
     conn.close()
 
     return {
@@ -95,15 +145,19 @@ def register_customer(payload: CustomerRegisterRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    existing_customer = cursor.execute(
+    cursor.execute(
         """
-        SELECT * FROM customers
-        WHERE email = ?
+        SELECT *
+        FROM customers
+        WHERE email = %s
         """,
         (payload.email,),
-    ).fetchone()
+    )
+
+    existing_customer = cursor.fetchone()
 
     if existing_customer:
+        cursor.close()
         conn.close()
         raise HTTPException(
             status_code=409,
@@ -123,7 +177,7 @@ def register_customer(payload: CustomerRegisterRequest):
             points,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
         (
             customer_code,
@@ -136,6 +190,7 @@ def register_customer(payload: CustomerRegisterRequest):
     )
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     email_sent = send_customer_welcome_email(
@@ -180,23 +235,26 @@ def get_customer(customer_code: str):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    customer = cursor.execute(
+    cursor.execute(
         """
         SELECT *
         FROM customers
-        WHERE code = ?
+        WHERE code = %s
         """,
         (customer_code,),
-    ).fetchone()
+    )
+
+    customer = cursor.fetchone()
 
     if not customer:
+        cursor.close()
         conn.close()
         raise HTTPException(
             status_code=404,
             detail="Cliente no encontrado.",
         )
 
-    purchases = cursor.execute(
+    cursor.execute(
         """
         SELECT
             invoice_number,
@@ -204,12 +262,15 @@ def get_customer(customer_code: str):
             points_earned,
             created_at
         FROM purchases
-        WHERE customer_code = ?
+        WHERE customer_code = %s
         ORDER BY created_at DESC
         """,
         (customer_code,),
-    ).fetchall()
+    )
 
+    purchases = cursor.fetchall()
+
+    cursor.close()
     conn.close()
 
     return {
@@ -224,7 +285,7 @@ def get_customer(customer_code: str):
         "purchases": [
             {
                 "invoice_number": purchase["invoice_number"],
-                "amount": purchase["amount"],
+                "amount": float(purchase["amount"]),
                 "points_earned": purchase["points_earned"],
                 "created_at": purchase["created_at"],
             }
