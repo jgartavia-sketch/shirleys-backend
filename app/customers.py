@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from collections import defaultdict, deque
+from time import time
 import os
 import psycopg2
 import psycopg2.extras
@@ -17,6 +18,8 @@ router = APIRouter()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_CUSTOMERS_TOKEN = os.getenv("ADMIN_CUSTOMERS_TOKEN", "")
+
+RATE_LIMIT_STORE = defaultdict(deque)
 
 
 class CustomerRegisterRequest(BaseModel):
@@ -34,6 +37,41 @@ class PurchaseRegisterByBodyRequest(BaseModel):
     customer_code: str
     invoice_number: str
     amount: float
+
+
+def get_client_ip(request: Request):
+    forwarded_for = request.headers.get("x-forwarded-for")
+
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+
+    if request.client:
+        return request.client.host
+
+    return "unknown"
+
+
+def check_rate_limit(
+    request: Request,
+    key: str,
+    max_requests: int,
+    window_seconds: int,
+):
+    client_ip = get_client_ip(request)
+    rate_key = f"{key}:{client_ip}"
+    now = time()
+    attempts = RATE_LIMIT_STORE[rate_key]
+
+    while attempts and now - attempts[0] > window_seconds:
+        attempts.popleft()
+
+    if len(attempts) >= max_requests:
+        raise HTTPException(
+            status_code=429,
+            detail="Demasiadas solicitudes. Intente de nuevo en unos minutos.",
+        )
+
+    attempts.append(now)
 
 
 def get_db_connection():
@@ -112,6 +150,52 @@ def verify_admin_token(x_admin_token: str | None):
             status_code=401,
             detail="Token admin inválido.",
         )
+
+
+def build_customer_response(customer):
+    customer_code = customer["code"]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            invoice_number,
+            amount,
+            points_earned,
+            created_at
+        FROM purchases
+        WHERE customer_code = %s
+        ORDER BY created_at DESC
+        """,
+        (customer_code,),
+    )
+
+    purchases = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "customer": {
+            "code": customer["code"],
+            "name": customer["name"],
+            "email": customer["email"],
+            "whatsapp": customer["whatsapp"],
+            "points": customer["points"],
+            "created_at": customer["created_at"],
+        },
+        "purchases": [
+            {
+                "invoice_number": purchase["invoice_number"],
+                "amount": float(purchase["amount"]),
+                "points_earned": purchase["points_earned"],
+                "created_at": purchase["created_at"],
+            }
+            for purchase in purchases
+        ],
+    }
 
 
 def create_purchase_for_customer(customer_code: str, invoice_number: str, amount: float):
@@ -214,7 +298,17 @@ def create_purchase_for_customer(customer_code: str, invoice_number: str, amount
 
 
 @router.get("/admin/list")
-def list_customers(x_admin_token: str | None = Header(default=None)):
+def list_customers(
+    request: Request,
+    x_admin_token: str | None = Header(default=None),
+):
+    check_rate_limit(
+        request=request,
+        key="customers_admin_list",
+        max_requests=60,
+        window_seconds=60,
+    )
+
     verify_admin_token(x_admin_token)
     ensure_customers_tables()
 
@@ -260,7 +354,33 @@ def list_customers(x_admin_token: str | None = Header(default=None)):
 
 
 @router.post("/register")
-def register_customer(payload: CustomerRegisterRequest):
+def register_customer(
+    payload: CustomerRegisterRequest,
+    request: Request,
+):
+    check_rate_limit(
+        request=request,
+        key="customer_register",
+        max_requests=5,
+        window_seconds=600,
+    )
+
+    clean_name = payload.name.strip()
+    clean_email = payload.email.strip().lower()
+    clean_whatsapp = payload.whatsapp.strip()
+
+    if len(clean_name) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="El nombre debe tener al menos 3 caracteres.",
+        )
+
+    if len(clean_whatsapp) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="El número de WhatsApp no parece válido.",
+        )
+
     ensure_customers_tables()
 
     conn = get_db_connection()
@@ -272,7 +392,7 @@ def register_customer(payload: CustomerRegisterRequest):
         FROM customers
         WHERE email = %s
         """,
-        (payload.email,),
+        (clean_email,),
     )
 
     existing_customer = cursor.fetchone()
@@ -302,9 +422,9 @@ def register_customer(payload: CustomerRegisterRequest):
         """,
         (
             customer_code,
-            payload.name,
-            payload.email,
-            payload.whatsapp,
+            clean_name,
+            clean_email,
+            clean_whatsapp,
             0,
             created_at,
         ),
@@ -315,28 +435,28 @@ def register_customer(payload: CustomerRegisterRequest):
     conn.close()
 
     email_sent = send_customer_welcome_email(
-        customer_name=payload.name,
-        customer_email=payload.email,
+        customer_name=clean_name,
+        customer_email=clean_email,
         customer_code=customer_code,
     )
 
     internal_email_sent = send_internal_new_customer_email(
-        customer_name=payload.name,
-        customer_email=payload.email,
-        customer_whatsapp=payload.whatsapp,
+        customer_name=clean_name,
+        customer_email=clean_email,
+        customer_whatsapp=clean_whatsapp,
         customer_code=customer_code,
     )
 
     customer_whatsapp_url = build_customer_welcome_whatsapp_url(
-        customer_name=payload.name,
-        customer_whatsapp=payload.whatsapp,
+        customer_name=clean_name,
+        customer_whatsapp=clean_whatsapp,
         customer_code=customer_code,
     )
 
     shirleys_whatsapp_url = build_internal_new_customer_whatsapp_url(
-        customer_name=payload.name,
-        customer_email=payload.email,
-        customer_whatsapp=payload.whatsapp,
+        customer_name=clean_name,
+        customer_email=clean_email,
+        customer_whatsapp=clean_whatsapp,
         customer_code=customer_code,
     )
 
@@ -354,8 +474,16 @@ def register_customer(payload: CustomerRegisterRequest):
 @router.post("/purchase")
 def register_purchase_by_body(
     payload: PurchaseRegisterByBodyRequest,
+    request: Request,
     x_admin_token: str | None = Header(default=None),
 ):
+    check_rate_limit(
+        request=request,
+        key="customer_purchase",
+        max_requests=40,
+        window_seconds=60,
+    )
+
     verify_admin_token(x_admin_token)
 
     return create_purchase_for_customer(
@@ -369,8 +497,16 @@ def register_purchase_by_body(
 def register_purchase(
     customer_code: str,
     payload: PurchaseRegisterRequest,
+    request: Request,
     x_admin_token: str | None = Header(default=None),
 ):
+    check_rate_limit(
+        request=request,
+        key="customer_purchase_by_code",
+        max_requests=40,
+        window_seconds=60,
+    )
+
     verify_admin_token(x_admin_token)
 
     return create_purchase_for_customer(
@@ -380,8 +516,74 @@ def register_purchase(
     )
 
 
+@router.get("/email/{customer_email}")
+def get_customer_by_email(
+    customer_email: str,
+    request: Request,
+):
+    check_rate_limit(
+        request=request,
+        key="customer_lookup_by_email",
+        max_requests=80,
+        window_seconds=60,
+    )
+
+    clean_email = customer_email.strip().lower()
+
+    if not clean_email:
+        raise HTTPException(
+            status_code=400,
+            detail="El correo electrónico del cliente es obligatorio.",
+        )
+
+    ensure_customers_tables()
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM customers
+        WHERE LOWER(email) = %s
+        """,
+        (clean_email,),
+    )
+
+    customer = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail="No encontramos un cliente asociado a ese correo electrónico.",
+        )
+
+    return build_customer_response(customer)
+
+
 @router.get("/{customer_code}")
-def get_customer(customer_code: str):
+def get_customer(
+    customer_code: str,
+    request: Request,
+):
+    check_rate_limit(
+        request=request,
+        key="customer_lookup",
+        max_requests=80,
+        window_seconds=60,
+    )
+
+    clean_customer_code = customer_code.strip()
+
+    if not clean_customer_code:
+        raise HTTPException(
+            status_code=400,
+            detail="El código del cliente es obligatorio.",
+        )
+
     ensure_customers_tables()
 
     conn = get_db_connection()
@@ -393,54 +595,18 @@ def get_customer(customer_code: str):
         FROM customers
         WHERE code = %s
         """,
-        (customer_code,),
+        (clean_customer_code,),
     )
 
     customer = cursor.fetchone()
 
+    cursor.close()
+    conn.close()
+
     if not customer:
-        cursor.close()
-        conn.close()
         raise HTTPException(
             status_code=404,
             detail="No encontramos un cliente asociado a ese código QR.",
         )
 
-    cursor.execute(
-        """
-        SELECT
-            invoice_number,
-            amount,
-            points_earned,
-            created_at
-        FROM purchases
-        WHERE customer_code = %s
-        ORDER BY created_at DESC
-        """,
-        (customer_code,),
-    )
-
-    purchases = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-
-    return {
-        "customer": {
-            "code": customer["code"],
-            "name": customer["name"],
-            "email": customer["email"],
-            "whatsapp": customer["whatsapp"],
-            "points": customer["points"],
-            "created_at": customer["created_at"],
-        },
-        "purchases": [
-            {
-                "invoice_number": purchase["invoice_number"],
-                "amount": float(purchase["amount"]),
-                "points_earned": purchase["points_earned"],
-                "created_at": purchase["created_at"],
-            }
-            for purchase in purchases
-        ],
-    }
+    return build_customer_response(customer)
