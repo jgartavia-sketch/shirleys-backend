@@ -72,19 +72,31 @@ def build_customer_welcome_whatsapp_url(
     normalized_phone = normalize_whatsapp_number(customer_whatsapp)
     customer_card_url = f"{FRONTEND_URL}/customers/{customer_code}"
 
-    message = f"""Hola {customer_name}, bienvenido a Shirley’s Customers.
+    message = f"""Hola, {customer_name}. Bienvenido a Shirley’s.
 
 Tu registro fue exitoso.
+
+Ahora tienes tu tarjeta digital de cliente frecuente, donde podrás acumular puntos en cada compra y canjearlos por promociones, beneficios y premios exclusivos.
 
 Código de cliente:
 {customer_code}
 
-Tu tarjeta digital está aquí:
+Tu tarjeta digital:
 {customer_card_url}
 
-Guarda este enlace y presenta tu QR en Shirley’s para acumular puntos.
+También te hemos enviado a tu correo electrónico la imagen de tu código QR personal. Te recomendamos descargarla y guardarla en tus imágenes favoritas para tenerla siempre disponible cuando visites Shirley’s o realices un pedido.
 
-Gracias por formar parte de Shirley’s."""
+Guarda tu tarjeta digital y presenta tu QR cada vez que visites Shirley’s para acumular puntos.
+
+Menú y pedidos:
+https://shirleyscr.com/menu
+
+Cotizaciones para eventos y Catering Service:
+https://shirleyscr.com/catering
+
+Gracias por formar parte de Shirley’s.
+
+Tu próxima visita podría acercarte a tu próxima recompensa."""
 
     return f"https://wa.me/{normalized_phone}?text={quote(message, safe='')}"
 
