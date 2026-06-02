@@ -110,7 +110,7 @@ def build_internal_new_customer_whatsapp_url(
     normalized_shirleys_phone = normalize_whatsapp_number(SHIRLEYS_WHATSAPP_NUMBER)
     customer_card_url = f"{FRONTEND_URL}/customers/{customer_code}"
 
-    message = f"""Nuevo registro en Shirley’s Customers.
+    message = f"""Nuevo registro en Shirley’s.
 
 Nombre:
 {customer_name}
@@ -156,14 +156,14 @@ def send_customer_welcome_email(
     qr_image = generate_customer_qr(customer_code)
 
     message = EmailMessage()
-    message["Subject"] = "Tu QR de Shirley’s Customers"
+    message["Subject"] = "Tu QR de Shirley’s"
     message["From"] = EMAIL_ADDRESS or ""
     message["To"] = customer_email
 
     text_content = f"""
 Hola {customer_name},
 
-¡Bienvenido a Shirley’s Customers!
+¡Bienvenido a Shirley’s!
 
 Tu registro fue exitoso.
 
@@ -185,7 +185,7 @@ Gracias por formar parte de Shirley’s.
           <div style="background:linear-gradient(135deg,#111a14,#1d2b20); border:1px solid rgba(212,175,55,.35); border-radius:24px; padding:32px;">
 
             <h1 style="margin:0 0 12px; color:#d4af37; font-size:28px;">
-              Shirley’s Customers
+              Shirley’s
             </h1>
 
             <p style="font-size:16px; line-height:1.6;">
@@ -253,7 +253,7 @@ def send_internal_new_customer_email(
     )
 
     message = EmailMessage()
-    message["Subject"] = "Nuevo cliente registrado en Shirley’s Customers"
+    message["Subject"] = "Nuevo cliente registrado en Shirley’s"
     message["From"] = EMAIL_ADDRESS or ""
     message["To"] = INTERNAL_NEW_CUSTOMER_EMAIL_TO
 
@@ -261,7 +261,7 @@ def send_internal_new_customer_email(
         message["Cc"] = INTERNAL_NEW_CUSTOMER_EMAIL_CC
 
     text_content = f"""
-Nuevo cliente registrado en Shirley’s Customers.
+Nuevo cliente registrado en Shirley’s.
 
 Nombre:
 {customer_name}
@@ -293,7 +293,7 @@ Notificación por WhatsApp:
             </h1>
 
             <p style="font-size:15px; line-height:1.7; color:#e8dec5;">
-              Se registró un nuevo cliente en <strong>Shirley’s Customers</strong>.
+              Se registró un nuevo cliente en <strong>Shirley’s</strong>.
             </p>
 
             <div style="background:rgba(255,255,255,.08); border-radius:18px; padding:20px; margin:24px 0;">
